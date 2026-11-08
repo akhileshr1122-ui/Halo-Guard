@@ -38,7 +38,7 @@ object Watcher {
 
         for (ai in scanner.userApps()) {
             val pkg = ai.packageName
-            if (pkg in trusted || pkg in Scanner.EXPECTED_UPLOADERS) continue
+            if (pkg in trusted || pkg in Scanner.EXPECTED_UPLOADERS || AllowedCloud.isAllowed(ctx, pkg)) continue
             val bg = usage[ai.uid]?.background ?: 0L
             if (bg < PHOTO_APP_LIMIT) continue
 

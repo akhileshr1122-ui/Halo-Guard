@@ -7,6 +7,12 @@ happens while you aren't using it), and which tracking/ad SDKs are built in. You
 background check with a "Stop using X?" alert when an app that can see your photos uploads a lot
 in the background.
 
+**Uploads:** a log of every upload of 1 MB or more, sorted into *Automatic* (app was closed, so
+nobody pressed upload), *Manual* (you had the app open) and *Allowed cloud* (Google Drive and OneDrive
+by default; you can add others). Each entry shows when it happened, its size and which
+companies/servers received it. Automatic uploads of 5 MB or more alert you right away. Needs Photo
+trail tracking on.
+
 **Photo trail:** where your data ends up. A local, DNS-only VPN records which servers each app
 contacts (e.g. `rupload.facebook.com → Meta (USA)`). It matches those servers against each app's
 upload bursts, so you can see which companies received an app's uploads. It can also block

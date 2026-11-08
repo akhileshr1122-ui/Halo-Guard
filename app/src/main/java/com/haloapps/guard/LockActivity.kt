@@ -29,7 +29,7 @@ class LockActivity : BaseActivity() {
             "Photo lock",
             "Chosen apps lose photo & file access the moment you close them. Removing access also " +
                 "stops the app, so it can't keep uploading in the background.",
-            2
+            3
         )
         setupBox = vbox()
         content.addView(setupBox)

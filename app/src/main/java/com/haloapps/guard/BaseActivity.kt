@@ -54,6 +54,7 @@ open class BaseActivity : Activity() {
         val nav = hbox()
         val tabs = listOf<Pair<String, Class<*>>>(
             "Apps" to MainActivity::class.java,
+            "Uploads" to UploadsActivity::class.java,
             "Photo trail" to TrailActivity::class.java,
             "Photo lock" to LockActivity::class.java
         )

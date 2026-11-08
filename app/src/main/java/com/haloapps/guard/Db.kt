@@ -6,7 +6,7 @@ import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 
 /** Local-only log. Nothing here ever leaves the phone. */
-class Db private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "guard.db", null, 1) {
+class Db private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "guard.db", null, 2) {
 
     companion object {
         @Volatile private var inst: Db? = null
@@ -21,9 +21,52 @@ class Db private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "guard.db", n
         db.execSQL("CREATE INDEX dns_uid_ts ON dns(uid, ts)")
         db.execSQL("CREATE INDEX dns_ts ON dns(ts)")
         db.execSQL("CREATE TABLE events (ts INTEGER NOT NULL, pkg TEXT, msg TEXT NOT NULL)")
+        createUploads(db)
     }
 
-    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {}
+    private fun createUploads(db: SQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS uploads (start INTEGER NOT NULL, finish INTEGER NOT NULL, " +
+                "uid INTEGER NOT NULL, pkg TEXT NOT NULL, bytes INTEGER NOT NULL, mode TEXT NOT NULL, " +
+                "dests TEXT NOT NULL)"
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS uploads_start ON uploads(start)")
+    }
+
+    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        if (oldVersion < 2) createUploads(db)
+    }
+
+    /** One detected upload. mode = "manual" (app was on screen) or "auto" (app was closed). */
+    class Upload(
+        val start: Long, val finish: Long, val uid: Int, val pkg: String,
+        val bytes: Long, val mode: String, val dests: String
+    )
+
+    fun insertUpload(u: Upload) {
+        val cv = ContentValues()
+        cv.put("start", u.start)
+        cv.put("finish", u.finish)
+        cv.put("uid", u.uid)
+        cv.put("pkg", u.pkg)
+        cv.put("bytes", u.bytes)
+        cv.put("mode", u.mode)
+        cv.put("dests", u.dests)
+        writableDatabase.insert("uploads", null, cv)
+    }
+
+    fun uploads(since: Long, limit: Int = 300): List<Upload> {
+        val out = ArrayList<Upload>()
+        readableDatabase.rawQuery(
+            "SELECT start, finish, uid, pkg, bytes, mode, dests FROM uploads WHERE start >= ? " +
+                "ORDER BY start DESC LIMIT $limit", arrayOf(since.toString())
+        ).use { c ->
+            while (c.moveToNext()) {
+                out.add(Upload(c.getLong(0), c.getLong(1), c.getInt(2), c.getString(3), c.getLong(4), c.getString(5), c.getString(6)))
+            }
+        }
+        return out
+    }
 
     class DnsRow(val ts: Long, val uid: Int, val domain: String, val blocked: Boolean)
 
@@ -101,5 +144,6 @@ class Db private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "guard.db", n
         val cutoff = (System.currentTimeMillis() - KEEP_MS).toString()
         writableDatabase.delete("dns", "ts < ?", arrayOf(cutoff))
         writableDatabase.delete("events", "ts < ?", arrayOf(cutoff))
+        writableDatabase.delete("uploads", "start < ?", arrayOf(cutoff))
     }
 }

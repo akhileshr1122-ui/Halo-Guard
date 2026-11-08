@@ -75,7 +75,7 @@ class TrailActivity : BaseActivity() {
         val content = setupScreen(
             "Photo trail",
             "Where your apps send data, and which companies end up with it.",
-            1
+            2
         )
         statusBox = vbox()
         content.addView(statusBox)

@@ -48,6 +48,7 @@ class GuardVpnService : VpnService() {
     private var tun: ParcelFileDescriptor? = null
     private var reader: Thread? = null
     private var writer: Thread? = null
+    private var monitor: Thread? = null
     @Volatile private var active = false
     private val pool = Executors.newFixedThreadPool(8)
     private val pending = LinkedBlockingQueue<Db.DnsRow>()
@@ -98,6 +99,7 @@ class GuardVpnService : VpnService() {
 
         reader = Thread({ readLoop(fd) }, "guard-vpn-read").also { it.start() }
         writer = Thread({ flushLoop() }, "guard-vpn-db").also { it.start() }
+        monitor = Thread({ monitorLoop() }, "guard-uploads").also { it.start() }
     }
 
     private fun readLoop(fd: ParcelFileDescriptor) {
@@ -191,6 +193,22 @@ class GuardVpnService : VpnService() {
         }
     }
 
+    /** Checks every minute for apps that just uploaded something (see UploadMonitor). */
+    private fun monitorLoop() {
+        val m = UploadMonitor(applicationContext)
+        while (active) {
+            try {
+                m.poll()
+            } catch (e: Exception) {
+            }
+            try {
+                Thread.sleep(60_000)
+            } catch (e: InterruptedException) {
+                break
+            }
+        }
+    }
+
     private fun forward(query: ByteArray): ByteArray? {
         for (server in UPSTREAM) {
             var sock: DatagramSocket? = null
@@ -268,6 +286,7 @@ class GuardVpnService : VpnService() {
         }
         tun = null
         reader?.interrupt()
+        monitor?.interrupt()
     }
 
     override fun onRevoke() {
