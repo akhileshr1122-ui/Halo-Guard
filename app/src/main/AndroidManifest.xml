@@ -2,7 +2,11 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- Deliberately NO android.permission.INTERNET: Halo Guard cannot send anything anywhere. -->
+    <!-- INTERNET is used ONLY to pass your phone's own DNS lookups on to 1.1.1.1 / 8.8.8.8 while
+         Photo trail tracking is on. Halo Guard never uploads anything about you. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
         tools:ignore="QueryAllPackagesPermission" />
     <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS"
@@ -25,6 +29,39 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <activity
+            android:name=".TrailActivity"
+            android:exported="false" />
+        <activity
+            android:name=".LockActivity"
+            android:exported="false" />
+
+        <service
+            android:name=".GuardVpnService"
+            android:exported="true"
+            android:permission="android.permission.BIND_VPN_SERVICE">
+            <intent-filter>
+                <action android:name="android.net.VpnService" />
+            </intent-filter>
+        </service>
+
+        <service
+            android:name=".PhotoLockService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Removes photo permissions from apps the user has closed" />
+        </service>
+
+        <provider
+            android:name="rikka.shizuku.ShizukuProvider"
+            android:authorities="${applicationId}.shizuku"
+            android:enabled="true"
+            android:exported="true"
+            android:multiprocess="false"
+            android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
 
         <service
             android:name=".WatchJobService"

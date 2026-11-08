@@ -1,11 +1,7 @@
 package com.haloapps.guard
 
-import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.graphics.Color
-import android.graphics.Typeface
-import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -13,26 +9,12 @@ import android.provider.Settings
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
-import android.view.WindowInsets
-import android.widget.HorizontalScrollView
 import android.widget.ImageView
 import android.widget.LinearLayout
-import android.widget.ScrollView
 import android.widget.TextView
 
-class MainActivity : Activity() {
+class MainActivity : BaseActivity() {
 
-    private val bgColor = Color.parseColor("#0E1116")
-    private val cardColor = Color.parseColor("#171B22")
-    private val chipColor = Color.parseColor("#232935")
-    private val textColor = Color.parseColor("#E8EAED")
-    private val subColor = Color.parseColor("#9AA0A6")
-    private val red = Color.parseColor("#FF5A5F")
-    private val amber = Color.parseColor("#FFB020")
-    private val green = Color.parseColor("#3DDC84")
-    private val accent = Color.parseColor("#7AA2FF")
-
-    private lateinit var content: LinearLayout
     private lateinit var statusBox: LinearLayout
     private lateinit var periodRow: LinearLayout
     private lateinit var filterRow: LinearLayout
@@ -44,52 +26,26 @@ class MainActivity : Activity() {
     private var scanning = false
     private var reports: List<AppReport> = emptyList()
 
-    private val prefs by lazy { getSharedPreferences("guard", MODE_PRIVATE) }
-
-    @Suppress("DEPRECATION")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
-        val scroll = ScrollView(this)
-        scroll.setBackgroundColor(bgColor)
-        content = vbox()
-        content.setPadding(dp(16), dp(16), dp(16), dp(32))
-        scroll.addView(content)
-        scroll.setOnApplyWindowInsetsListener { v, insets ->
-            if (Build.VERSION.SDK_INT >= 30) {
-                val b = insets.getInsets(WindowInsets.Type.systemBars())
-                v.setPadding(b.left, b.top, b.right, b.bottom)
-            } else {
-                v.setPadding(
-                    insets.systemWindowInsetLeft, insets.systemWindowInsetTop,
-                    insets.systemWindowInsetRight, insets.systemWindowInsetBottom
-                )
-            }
-            insets
-        }
-        setContentView(scroll)
-
-        content.addView(text("Halo Guard", 28f, textColor, bold = true))
-        content.addView(
-            text(
-                "See which apps can read your photos, which ones send data off your phone, " +
-                    "and which carry trackers.", 14f, subColor
-            ).apply { setPadding(0, dp(4), 0, dp(16)) }
+        val content = setupScreen(
+            "Halo Guard",
+            "Which apps can read your photos, which send data off your phone, and which carry trackers.",
+            0
         )
 
         statusBox = vbox()
         content.addView(statusBox)
 
         content.addView(sectionLabel("Time window"))
-        periodRow = hbox()
-        content.addView(periodRow)
+        val (ps, pr) = chipRow()
+        periodRow = pr
+        content.addView(ps)
 
         content.addView(sectionLabel("Show"))
-        filterRow = hbox()
-        val filterScroll = HorizontalScrollView(this)
-        filterScroll.isHorizontalScrollBarEnabled = false
-        filterScroll.addView(filterRow)
-        content.addView(filterScroll)
+        val (fs, fr) = chipRow()
+        filterRow = fr
+        content.addView(fs)
 
         summary = text("", 14f, textColor).apply { setPadding(0, dp(18), 0, dp(10)) }
         content.addView(summary)
@@ -99,12 +55,11 @@ class MainActivity : Activity() {
 
         content.addView(
             text(
-                "How this works: Halo Guard has no internet permission, so nothing it sees ever " +
-                    "leaves your phone. Android encrypts each app's traffic, so no app can see " +
-                    "WHAT another app uploads — Halo Guard shows how much each app sends, whether " +
-                    "it did so while you weren't using it, what it is allowed to read, and which " +
-                    "tracking SDKs are built in. Tracker detection is based on the app's declared " +
-                    "components, so it can miss some.",
+                "How this works: everything Halo Guard sees stays on your phone. Android encrypts each " +
+                    "app's traffic, so no app can see WHAT another app uploads. Halo Guard shows how much " +
+                    "each app sends, whether it did so while you weren't using it, what it is allowed to " +
+                    "read, and which tracking SDKs are built in. Use Photo trail to see which companies " +
+                    "receive the data, and Photo lock to remove photo access whenever an app is closed.",
                 12f, subColor
             ).apply { setPadding(0, dp(24), 0, 0) }
         )
@@ -116,6 +71,7 @@ class MainActivity : Activity() {
         }
         Notifier.ensureChannel(this)
         Watcher.schedule(this)
+        if (PhotoLock.lockedApps(this).isNotEmpty()) PhotoLock.startService(this)
     }
 
     override fun onResume() {
@@ -250,12 +206,14 @@ class MainActivity : Activity() {
         top.addView(badge(r))
         c.addView(top)
 
+        val locked = PhotoLock.isLocked(this, r.pkg)
         val photoColor = when (r.photo) {
             PhotoAccess.ALL_FILES -> red
             PhotoAccess.FULL -> amber
             else -> subColor
         }
-        c.addView(infoLine("Photos:  " + r.photo.label, photoColor))
+        val lockNote = if (locked) "  (Photo lock on)" else ""
+        c.addView(infoLine("Photos:  " + r.photo.label + lockNote, if (locked) green else photoColor))
 
         if (r.upTotal > 0) {
             val bgHeavy = r.upBackground >= 5 * Scanner.MB && !r.expected
@@ -277,7 +235,7 @@ class MainActivity : Activity() {
         if (r.level == "HIGH" && !r.trusted && !r.expected) {
             c.addView(
                 text(
-                    "Recommendation: avoid this app, or remove its Photos permission.",
+                    "Recommendation: avoid this app, or turn on Photo lock for it.",
                     13f, red, bold = true
                 ).apply { setPadding(0, dp(8), 0, 0) }
             )
@@ -285,18 +243,36 @@ class MainActivity : Activity() {
 
         val actions = hbox()
         actions.setPadding(0, dp(12), 0, 0)
-        actions.addView(button("Permissions", accent) {
+        actions.addView(button("Where it sends", accent) {
+            startActivity(
+                Intent(this, TrailActivity::class.java)
+                    .putExtra("pkg", r.pkg)
+                    .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+            )
+        })
+        if (r.photo >= PhotoAccess.FULL || locked) {
+            actions.addView(space())
+            actions.addView(button(if (locked) "Photo lock ✓" else "Lock photos", if (locked) green else amber) {
+                PhotoLock.setLocked(this, r.pkg, !locked)
+                renderList()
+            })
+        }
+        c.addView(actions)
+
+        val actions2 = hbox()
+        actions2.setPadding(0, dp(8), 0, 0)
+        actions2.addView(button("Permissions", subColor) {
             safeStart(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${r.pkg}")))
         })
-        actions.addView(space())
-        actions.addView(button(if (r.trusted) "Trusted ✓" else "I trust it", if (r.trusted) green else subColor) {
+        actions2.addView(space())
+        actions2.addView(button(if (r.trusted) "Trusted ✓" else "I trust it", if (r.trusted) green else subColor) {
             toggleTrust(r.pkg)
         })
-        actions.addView(space())
-        actions.addView(button("Uninstall", red) {
+        actions2.addView(space())
+        actions2.addView(button("Uninstall", red) {
             safeStart(Intent(Intent.ACTION_DELETE, Uri.parse("package:${r.pkg}")))
         })
-        c.addView(actions)
+        c.addView(actions2)
         return c
     }
 
@@ -315,70 +291,6 @@ class MainActivity : Activity() {
             safeStart(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
         }
     }
-
-    private fun safeStart(i: Intent) {
-        try {
-            startActivity(i)
-        } catch (e: Exception) {
-            // nothing to open
-        }
-    }
-
-    // ---------------------------------------------------------------- view helpers
-
-    private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
-
-    private fun vbox(): LinearLayout = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-
-    private fun hbox(): LinearLayout = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-
-    private fun space(): View = View(this).apply { layoutParams = LinearLayout.LayoutParams(dp(8), 1) }
-
-    private fun rounded(color: Int, radiusDp: Int): GradientDrawable = GradientDrawable().apply {
-        setColor(color)
-        cornerRadius = dp(radiusDp).toFloat()
-    }
-
-    private fun text(s: String, sizeSp: Float, color: Int, bold: Boolean = false): TextView =
-        TextView(this).apply {
-            text = s
-            textSize = sizeSp
-            setTextColor(color)
-            if (bold) typeface = Typeface.DEFAULT_BOLD
-        }
-
-    private fun sectionLabel(s: String): TextView =
-        text(s.uppercase(), 11f, subColor, bold = true).apply { setPadding(0, dp(14), 0, dp(6)) }
-
-    private fun infoLine(s: String, color: Int): TextView =
-        text(s, 13f, color).apply { setPadding(0, dp(6), 0, 0) }
-
-    private fun card(): LinearLayout = vbox().apply {
-        background = rounded(cardColor, 16)
-        setPadding(dp(14), dp(14), dp(14), dp(14))
-        layoutParams = LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
-        ).apply { bottomMargin = dp(10) }
-    }
-
-    private fun chip(label: String, selected: Boolean, onClick: () -> Unit): TextView =
-        text(label, 13f, if (selected) bgColor else textColor, bold = selected).apply {
-            background = rounded(if (selected) accent else chipColor, 18)
-            setPadding(dp(14), dp(8), dp(14), dp(8))
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply { rightMargin = dp(8) }
-            isClickable = true
-            setOnClickListener { onClick() }
-        }
-
-    private fun button(label: String, color: Int, onClick: () -> Unit): TextView =
-        text(label, 13f, color, bold = true).apply {
-            background = rounded(chipColor, 10)
-            setPadding(dp(12), dp(8), dp(12), dp(8))
-            isClickable = true
-            setOnClickListener { onClick() }
-        }
 
     private fun badge(r: AppReport): TextView {
         val (label, color) = when {

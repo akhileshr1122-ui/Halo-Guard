@@ -53,8 +53,8 @@ object Watcher {
             val title = "Stop using $label?"
             val body = if (canSeePhotos) {
                 "$label uploaded ${fmtBytes(bg)} in the last 6 hours while you weren't using it, " +
-                    "and it can see all your photos. If you didn't expect this, avoid the app and " +
-                    "remove its Photos permission."
+                    "and it can see all your photos. If you didn't expect this, avoid the app or turn on Photo lock for it in Halo Guard, " +
+                    "so it loses photo access whenever it is closed."
             } else {
                 "$label uploaded ${fmtBytes(bg)} in the background in the last 6 hours. " +
                     "If you didn't expect this, avoid the app or uninstall it."

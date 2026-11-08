@@ -11,8 +11,8 @@ android {
         applicationId = "com.haloapps.guard"
         minSdk = 29
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "2.0"
     }
 
     buildTypes {
@@ -25,4 +25,8 @@ android {
     kotlinOptions { jvmTarget = "17" }
     lint { abortOnError = false }
 }
-// No third-party libraries on purpose: the app has no INTERNET permission and no SDKs.
+dependencies {
+    // Shizuku: lets Halo Guard run "pm revoke/grant" (Photo lock) without root.
+    implementation("dev.rikka.shizuku:api:13.1.5")
+    implementation("dev.rikka.shizuku:provider:13.1.5")
+}
