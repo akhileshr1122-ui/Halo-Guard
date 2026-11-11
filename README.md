@@ -17,6 +17,10 @@ trail tracking on.
 contacts (e.g. `rupload.facebook.com → Meta (USA)`). It matches those servers against each app's
 upload bursts, so you can see which companies received an app's uploads. It can also block
 known tracker domains (it replaces Hush, because Android allows only one VPN at a time).
+By default it also blocks ~190k known scam, phishing and malware sites (HaGeZi Threat
+Intelligence Feeds, refreshed daily) and sends every lookup **encrypted** (DNS-over-HTTPS to
+Cloudflare, falling back to Google), so your Wi-Fi network or provider can't see which sites you
+look up. It is not a full VPN: it doesn't hide your IP address or encrypt the rest of your traffic.
 
 **Photo lock:** for apps you choose, photo/video/all-files access is removed a few seconds
 after you leave the app. Removing the permission also stops the app, so background uploads stop too.
@@ -28,7 +32,7 @@ Everything stays on the phone. The INTERNET permission is used only to forward t
 DNS lookups while Photo trail tracking is on.
 
 ## Build
-Push to `main` → Actions → "Build APK" → download the `HaloGuard-apk` artifact.
+Push to `main` → Actions → "Build APK" → the APK is published to the `latest` release.
 
 ## Setup on the phone
 1. Install the APK. Open it → allow **Usage access** and notifications.

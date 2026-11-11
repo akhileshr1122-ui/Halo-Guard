@@ -177,10 +177,50 @@ class TrailActivity : BaseActivity() {
             renderStatus()
         })
         c.addView(row)
+
+        val row2 = hbox().apply { setPadding(0, dp(8), 0, 0) }
+        val threats = prefs.getBoolean("block_threats", true)
+        row2.addView(button(if (threats) "Scam block: ON" else "Scam block: OFF", if (threats) green else subColor) {
+            prefs.edit().putBoolean("block_threats", !threats).apply()
+            renderStatus()
+        })
+        row2.addView(space())
+        val enc = prefs.getBoolean("encrypted_dns", true)
+        row2.addView(button(if (enc) "Encrypted DNS: ON" else "Encrypted DNS: OFF", if (enc) green else subColor) {
+            prefs.edit().putBoolean("encrypted_dns", !enc).apply()
+            renderStatus()
+        })
+        c.addView(row2)
+
+        if (on) {
+            val now = System.currentTimeMillis()
+            val encOk = GuardVpnService.lastEncryptedAt > 0 && now - GuardVpnService.lastEncryptedAt < 10 * 60_000L
+            val plainRecent = GuardVpnService.lastPlainAt > 0 && now - GuardVpnService.lastPlainAt < 10 * 60_000L
+            val dnsLine = when {
+                !enc -> "⚠ Lookups are sent unencrypted. Your Wi-Fi or provider can see which sites you visit."
+                encOk && !plainRecent -> "🔒 Lookups encrypted via ${GuardVpnService.lastDohServer}."
+                encOk -> "🔒 Lookups encrypted via ${GuardVpnService.lastDohServer} (a few went plain when it was unreachable)."
+                plainRecent -> "⚠ Encrypted DNS unreachable on this network, using plain DNS for now."
+                else -> "🔒 Encrypted DNS ready."
+            }
+            c.addView(text(dnsLine, 13f, if (dnsLine.startsWith("⚠")) amber else green).apply { setPadding(0, dp(10), 0, 0) })
+            val listLine = when {
+                !threats -> "Scam & malware blocking is off."
+                ThreatList.count == 0 -> "Downloading the scam & malware list…"
+                else -> String.format(
+                    java.util.Locale.US, "🛡 %,d known scam/phishing/malware sites blocked (list %s). %d blocked since tracking started.",
+                    ThreatList.count,
+                    if (ThreatList.updatedAt == 0L) "built into the app, updating"
+                    else "updated " + android.text.format.DateUtils.getRelativeTimeSpanString(ThreatList.updatedAt),
+                    GuardVpnService.threatsBlocked,
+                )
+            }
+            c.addView(text(listLine, 13f, textColor).apply { setPadding(0, dp(4), 0, 0) })
+        }
         c.addView(
             text(
                 "Tip: in Settings → Connections → More connection settings → Private DNS, choose " +
-                    "Off or Automatic. A custom Private DNS provider bypasses tracking. For it to start " +
+                    "Off or Automatic (Halo Guard encrypts lookups itself). A custom Private DNS provider bypasses it. For it to start " +
                     "after a restart: Settings → Connections → More connection settings → VPN → " +
                     "Halo Guard ⚙ → Always-on VPN.",
                 11f, subColor

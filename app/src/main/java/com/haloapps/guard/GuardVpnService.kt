@@ -10,6 +10,8 @@ import android.system.OsConstants
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.net.DatagramPacket
+import java.net.HttpURLConnection
+import java.net.URL
 import java.net.DatagramSocket
 import java.net.InetAddress
 import java.net.InetSocketAddress
@@ -22,7 +24,12 @@ import java.util.concurrent.TimeUnit
  * "Photo trail" tracker. A local VPN that ONLY captures DNS lookups (all other traffic goes
  * straight to the internet as normal). Every time an app looks up a server name we record
  * which app asked and for which server, then forward the lookup to a real DNS server.
- * Optionally answers "does not exist" for known tracker domains (blocking them).
+ * Optionally answers "does not exist" for known tracker domains (blocking them), and by
+ * default for known scam / phishing / malware sites (see ThreatList).
+ *
+ * Lookups are forwarded encrypted (DNS-over-HTTPS to Cloudflare, then Google), so the Wi-Fi
+ * network and internet provider can't read which sites the phone looks up. Plain DNS is only
+ * used if both encrypted servers fail (e.g. a hotel Wi-Fi login page).
  */
 class GuardVpnService : VpnService() {
 
@@ -32,6 +39,18 @@ class GuardVpnService : VpnService() {
         private const val VPN_ADDR = "10.111.0.2"
         private const val DNS_ADDR = "10.111.0.1"
         private val UPSTREAM = listOf("1.1.1.1", "8.8.8.8")
+        private val DOH = listOf("https://1.1.1.1/dns-query", "https://dns.google/dns-query")
+
+        /** Last time a lookup went out encrypted / unencrypted (ms), for the status card. */
+        @Volatile var lastEncryptedAt = 0L
+            private set
+        @Volatile var lastPlainAt = 0L
+            private set
+        @Volatile var lastDohServer = ""
+            private set
+        /** Dangerous-site lookups blocked since the VPN started. */
+        @Volatile var threatsBlocked = 0
+            private set
 
         @Volatile var running = false
             private set
@@ -96,6 +115,8 @@ class GuardVpnService : VpnService() {
         running = true
         out = FileOutputStream(fd.fileDescriptor)
         Db.get(this).prune()
+        ThreatList.ensureLoaded(this)
+        threatsBlocked = 0
 
         reader = Thread({ readLoop(fd) }, "guard-vpn-read").also { it.start() }
         writer = Thread({ flushLoop() }, "guard-vpn-db").also { it.start() }
@@ -140,8 +161,10 @@ class GuardVpnService : VpnService() {
         val domain = Dns.queryName(dns) ?: return
 
         val uid = ownerUid(srcIp, srcPort, dstIp, dstPort)
-        val block = prefs().getBoolean("block_trackers", false) && Owners.isTracker(domain)
+        val threat = prefs().getBoolean("block_threats", true) && ThreatList.isThreat(domain)
+        val block = threat || prefs().getBoolean("block_trackers", false) && Owners.isTracker(domain)
         record(uid, domain, block)
+        if (threat) warnThreat(uid, domain)
 
         if (block) {
             writeBack(srcIp, srcPort, dstIp, dstPort, Dns.nxdomain(dns))
@@ -209,7 +232,68 @@ class GuardVpnService : VpnService() {
         }
     }
 
+    private val warned = ConcurrentHashMap<String, Long>()
+
+    /** One alert per site per hour: "Blocked a dangerous site that <app> tried to open". */
+    private fun warnThreat(uid: Int, domain: String) {
+        threatsBlocked++
+        if (domain.startsWith("_")) return
+        val root = Owners.rootDomain(domain)
+        val now = System.currentTimeMillis()
+        val last = warned[root]
+        if (last != null && now - last < 3600_000L) return
+        warned[root] = now
+        val pkg = try { packageManager.getPackagesForUid(uid)?.firstOrNull() } catch (e: Exception) { null } ?: "android"
+        val label = try {
+            packageManager.getApplicationLabel(packageManager.getApplicationInfo(pkg, 0)).toString()
+        } catch (e: Exception) { "An app" }
+        Notifier.alert(
+            this, pkg, label,
+            "Blocked a dangerous site",
+            "$label tried to open $root, which is on a scam/phishing/malware list. Halo Guard stopped it. " +
+                "If you just tapped a link in a message or email, don't enter any passwords or card details there.",
+        )
+    }
+
     private fun forward(query: ByteArray): ByteArray? {
+        if (prefs().getBoolean("encrypted_dns", true)) {
+            for (url in DOH) {
+                val r = forwardHttps(url, query)
+                if (r != null) {
+                    lastEncryptedAt = System.currentTimeMillis()
+                    lastDohServer = if (url.contains("1.1.1.1")) "Cloudflare" else "Google"
+                    return r
+                }
+            }
+        }
+        val plain = forwardPlain(query)
+        if (plain != null) lastPlainAt = System.currentTimeMillis()
+        return plain
+    }
+
+    /** DNS-over-HTTPS (RFC 8484). Halo Guard itself is outside the VPN, so this can't loop. */
+    private fun forwardHttps(url: String, query: ByteArray): ByteArray? {
+        var conn: HttpURLConnection? = null
+        return try {
+            conn = URL(url).openConnection() as HttpURLConnection
+            conn.connectTimeout = 3500
+            conn.readTimeout = 3500
+            conn.requestMethod = "POST"
+            conn.doOutput = true
+            conn.setRequestProperty("Content-Type", "application/dns-message")
+            conn.setRequestProperty("Accept", "application/dns-message")
+            conn.setFixedLengthStreamingMode(query.size)
+            conn.outputStream.use { it.write(query) }
+            if (conn.responseCode != 200) return null
+            val body = conn.inputStream.use { it.readBytes() }
+            if (body.size < 12) null else body
+        } catch (e: Exception) {
+            null
+        }
+        // Not disconnecting lets Android reuse the encrypted connection for the next lookup.
+    }
+
+    private fun forwardPlain(query: ByteArray): ByteArray? {
         for (server in UPSTREAM) {
             var sock: DatagramSocket? = null
             try {
